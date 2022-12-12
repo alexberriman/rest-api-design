@@ -1,8 +1,8 @@
 <h1 align="center" id="top">
-  Dream Rest API ✨
+  REST API Design
   <br>
 </h1>
-<h4 align="center">An opinionated guide on how to design beautiful REST APIs</h4>
+<h4 align="center">An opinionated guide on how to design REST APIs</h4>
 
 <div align="center">
 
@@ -18,16 +18,19 @@
   - [HTTP response codes](#http-response-codes)
   - [URL structure](#url-structure)
   - [Resources](#resources)
-  - [Response body](#response-body)
+  - [Data envelopes](#data-envelopes)
+  - [Response types](#response-types)
 - [Operations](#operations)
   - [Create](#create)
   - [Read](#read)
   - [Update](#update)
   - [Delete](#delete)
+  - [Upserting](#upserting)
 - [Errors](#errors)
 - [Filtering](#filtering)
 - [Sorting](#sorting)
 - [Pagination](#pagination)
+  - [Cursor vs. offset pagination](#cursor-vs-offset-pagination)
   - [Cursor based pagination](#cursor-based-pagination)
   - [Page based pagination](#page-based-pagination)
 - [Expanding relations](#expanding-relations)
@@ -40,11 +43,11 @@
 
 ## Introduction
 
-Over the years I've both written and interfaced with hundreds of APIs. Some have been great - a lot, however have not. One of the great things about REST is that it's flexible. While there are certain community conventions and best practices in place, ultimately it allows you to design APIs however you want. With great power though comes great responsibility 🕷. Unfortunately, this flexibility often gives rise to poorly designed, inconsistent APIs that are frustrating to interface with.
+Over the years I've both written and interfaced with a lot of APIs. Some have been great, some have not. One of the great things about REST is that it's flexible. While there are certain community conventions and best practices in place, it ultimately allows you to design an API however you want. Unfortunately, this flexibility can also often gives rise to poorly designed, ill-thought out APIs that can be incredibly difficult and frustrating to consume.
 
-The purpose of this repository is to document what I consider to be my dream API. That is, an API that I, as a software engineer would love to consume.
+The purpose of this repository is to document what I consider to be a great REST API. That is, an API that I, as a software engineer would love to consume and integrate with.
 
-Before reading on, I want to throw out a quick disclamer. I obviously don't think there's a single _best_ way to design APIs. My views have evolved over time and I expect them to continue to do so. I don't expect everyone to agree on everything. Feel free to pick and choose different parts of this guide if you find them useful. Better yet, if there's something you disagree with or areas of improvement you see, please raise an issue and let's discuss it.
+Before reading on, I want to throw out a quick disclamer: I obviously don't think there's a single _best_ way to design APIs. My views have evolved over time and I expect them to continue to do so. I don't expect everyone to agree on everything. Feel free to pick and choose different parts of this guide if you find them useful. Better yet, if there's something you disagree with or areas of improvement you see, please feel free raise an issue or a PR with suggested changes.
 
 <div align="right"><a href="#top">Back to top</a></div>
 
@@ -57,6 +60,7 @@ Standard HTTP verbs should be used:
 | HTTP verb | When to use                                          |
 | --------- | ---------------------------------------------------- |
 | `GET`     | Retrieve a list of resources, or a specific resource |
+| `HEAD`    | Retrieve metadata about an individual resource       |
 | `POST`    | Create a new resource                                |
 | `PUT`     | Replace a resource                                   |
 | `PATCH`   | Partially update a resource                          |
@@ -66,48 +70,57 @@ Standard HTTP verbs should be used:
 
 ### HTTP response codes
 
-Standard HTTP response codes should be used. `2xx` responses should indicate a success, `4xx` a client error and `5xx` a service error:
+Standard HTTP response codes should be used. `2xx` responses should indicate a success, `4xx` a client error and `5xx` an unhandled service error:
 
-| HTTP code                   | When to use                                                                                          |
-| --------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `200 OK`                    | The request was a success and the service has data to return                                         |
-| `201 Created`               | A new resource was successfully created                                                              |
-| `204 No Content`            | The request was successful but the service has no data to return                                     |
-| `400 Bad Request`           | The client request was invalid                                                                       |
-| `401 Unauthorized`          | The client was not authorized to perform the request                                                 |
-| `404 Not Found`             | The requested resource does not exist                                                                |
-| `405 Method Not Allowed`    | The HTTP method is not supported on the requested endpoint                                           |
-| `412 Precondition Failed`   | Access to the target resource has been denied                                                        |
-| `500 Internal Server Error` | A generic server error that should only be returned when a more descriptive error cannot be inferred |
+| HTTP code                   | When to use                                                                                                                      |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `200 OK`                    | The request was a success and the service has data to return                                                                     |
+| `201 Created`               | A new resource was successfully created                                                                                          |
+| `204 No Content`            | The request was successful but the service has no data to return                                                                 |
+| `400 Bad Request`           | The client request was invalid                                                                                                   |
+| `401 Unauthorized`          | The client request lacks valid authentication credentials                                                                        |
+| `403 Forbidden`             | The request contains valid authentication credentials but the identified user is not authorized to access the requested resource |
+| `404 Not Found`             | The requested resource does not exist                                                                                            |
+| `405 Method Not Allowed`    | The HTTP method is not supported on the requested endpoint                                                                       |
+| `409 Conflict`              | Tried to create a resource that already exists                                                                                   |
+| `412 Precondition Failed`   | Access to the target resource has been denied. Generally due to caching header mismatches                                        |
+| `500 Internal Server Error` | A generic server error that should only be returned when a more descriptive error cannot be given                                |
 
 <div align="right"><a href="#top">Back to top</a></div>
 
 ### URL structure
 
-When interfacing with a single instance of resource, use the singular spelling variation (e.g. `user`). When interfacing with the collection, use a plural (e.g. `users`).
+You should **always** use the plural spelling variation when grouping resource endpoints:
 
-| URL                                | Description                            | Example            |
-| ---------------------------------- | -------------------------------------- | ------------------ |
-| `GET /{resource:singular}/{id}`    | Retrieve a single resource by ID       | `GET /user/abc`    |
-| `GET /{resource:plural}`           | Query and retrieve a list of resources | `GET /users`       |
-| `POST /{resource:plural}`          | Create a new resource                  | `POST /users`      |
-| `PUT /{resource:singular/{id}`     | Replace a resource by ID               | `PUT /user/abc`    |
-| `PATCH /{resource:singular/{id}`   | Partially update a resource by ID      | `PATCH /user/abc`  |
-| `DELETE /{resource:singular}/{id}` | Delete a resource by ID                | `DELETE /user/abc` |
+- It simplifies interfacing with your API (this is the biggest point)
+- It groups all resource child routes together
+- It is generally easier to configure routing rules in a service based architecture
+
+With the above in mind, your URLs should be configured as follows:
+
+| URL                       | Description                                  | Example             |
+| ------------------------- | -------------------------------------------- | ------------------- |
+| `GET /{resource}/{id}`    | Retrieve a single resource by ID             | `GET /users/abc`    |
+| `HEAD /{resource}/{id}`   | Retrieve metadata of a single resource by ID | `HEAD /users/abc`   |
+| `GET /{resource}`         | Query and retrieve a list of resources       | `GET /users`        |
+| `POST /{resource}`        | Create a new resource                        | `POST /users`       |
+| `PUT /{resource/{id}`     | Replace a resource by ID                     | `PUT /users/abc`    |
+| `PATCH /{resource/{id}`   | Partially update a resource by ID            | `PATCH /users/abc`  |
+| `DELETE /{resource}/{id}` | Delete a resource by ID                      | `DELETE /users/abc` |
 
 Unless there is a strong case not to, you should strive to use non-enumerable unique IDs (such as a uuid). Auto incrementing IDs should be an exception, not the norm.
 
 #### Relations
 
-Where it makes sense, you can use nested URLs to return related data: `/{resource:singular}/{id}/{relation}`.
+Where it makes sense, use nested URLs to return related data: `/{resource}/{id}/{relation}`.
 
-- When the relation is 1:1, use the singular spelling variation (`GET /user/{id}/profile`)
-- When the relation is 1:n, use the plural (`GET /user/{id}/transactions`)
+- When the relation is 1:1, use the singular spelling variation (`GET /users/{id}/profile`)
+- When the relation is 1:n, use the plural (`GET /users/{id}/transactions`)
 
-Make sure to set a limit in respect to how deep you can nest URLs. To keep things simple, I tend to limit to a single level of nesting:
+Make sure to set a limit in respect to how deep you nest URLs. To keep things simple, I tend to limit to a single level of nesting:
 
-- Good ✅: `/user/{id}/transactions`
-- Bad ❌: `/user/{id}/transactions/{transactionId}/products/{productId}`
+- Good ✅: `/users/{id}/transactions`
+- Bad ❌: `/users/{id}/transactions/{transactionId}/products/{productId}`
 
 In situations where you need to query on related resources, encourage consumers to query the resource directly, e.g.:
 
@@ -130,11 +143,15 @@ Resources and their properties should be named using `camelCase` (e.g. `createdA
 
 #### Date format
 
-Use [ISO 8601](https://www.iso.org/iso-8601-date-and-time-format.html) to represent all dates and times (e.g. `2020-01-01T00:00:00.000Z`) For simplicity, store all datetimes with a zero offset (that is, store in UTC time). If you need to store timezone information, do it in a separate property. A user's timezone may change for example, but the datetime they completed an action will not.
+Use [ISO 8601](https://www.iso.org/iso-8601-date-and-time-format.html) to represent all dates and times (e.g. `2020-01-01T00:00:00.000Z`) For simplicity, store all datetimes with a zero offset (that is, store in UTC time). If you need to store timezone information, do it in a separate property. A user's timezone may change, but the datetime they completed an action will not.
+
+#### Spelling localization
+
+Always use American spelling. Users consuming your API shouldn't have to know the intracices between American, Australian, Canadian and British English.
 
 <div align="right"><a href="#top">Back to top</a></div>
 
-### Response body
+### Data envelopes
 
 Data envelopes are unnecessary and should not be used. For a single resource, return the object directly. For multiple resources, return an array of objects. If you need to return additional information, use custom HTTP headers.
 
@@ -160,15 +177,25 @@ Data envelopes are unnecessary and should not be used. For a single resource, re
 
 <div align="right"><a href="#top">Back to top</a></div>
 
+### Response types
+
+APIs should generally return a response in a single content type (e.g. json). In order to keep your API as simple as possible, I'd recommend only implementing a single content type unless there was a strong need to support multiple (e.g. json + xml).
+
+If you do need to support multiple content types, do so through the [Accept](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept) request header and return the response in the requested format through the [Content-Type](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Type) response header.
+
+If the client requests data in a content type that isn't supported, return `415 Unsupported Media Type`.
+
+<div align="right"><a href="#top">Back to top</a></div>
+
 ## Operations
 
-Standard CRUD operations should apply. In a situation in which certain operations are not available (read-only resources might not be available to update/delete for example), the service should return a `405 Method Not Allowed` response.
+Standard CRUD operations should apply. In a situation in which certain operations are not available (read-only resources might not be available to update/delete for example), the service should return `405 Method Not Allowed`.
 
 ### Create
 
-`POST /{resource:plural}`
+`POST /{resource}`
 
-A `POST` request to the plural instance of a resource should return a `201 Created` response with the ID of the created resource:
+A `POST` request to the resource should return a `201 Created` response with the ID of the created resource:
 
 ```jsonc
 // 201 Created
@@ -177,18 +204,20 @@ A `POST` request to the plural instance of a resource should return a `201 Creat
 }
 ```
 
+If a resource has a unique constraint and already exists (e.g. a user resource might have a unique constraint on the `email` property), it should return a `409 Conflict` response.
+
 <div align="right"><a href="#top">Back to top</a></div>
 
 ### Read
 
 #### Retrieving a single resource by ID
 
-`GET /{resource:singular}/{id}`
+`GET /{resource}/{id}`
 
 A `GET` request to the single resource instance with an ID should return a `200 OK` response with the resource:
 
 ```jsonc
-// GET /user/aaa
+// GET /users/aaa
 {
   "id": "aaa",
   "name": "Steve Smith",
@@ -200,9 +229,9 @@ A `GET` request to the single resource instance with an ID should return a `200 
 
 #### Searching for/retrieving a list of resources
 
-`GET /{resource:plural}`
+`GET /{resource}`
 
-A `GET` request to the plural endpoint should return a `200 OK` response with a list of the resources:
+A `GET` request to the resource should return a `200 OK` response with a list of the resources:
 
 ```jsonc
 // GET /users
@@ -221,6 +250,14 @@ A `GET` request to the plural endpoint should return a `200 OK` response with a 
 ```
 
 <div align="right"><a href="#top">Back to top</a></div>
+
+#### Retrieve resource metadata
+
+`HEAD /{resource}/id`
+
+It's often useful to know information about a resource (e.g. whether it exists, its [ETag](#etag), last modification time, content-type, content-length etc.) without wanting to actually fetch the resource itself.
+
+A `HEAD` request to a resource should return the same response headers as a `GET` request but with an **empty response body**.
 
 ### Update
 
@@ -247,14 +284,14 @@ Using the following json:
 
 #### Replacing a resource
 
-`PUT /{resource:singular}/{id}`
+`PUT /{resource}/{id}`
 
 A `PUT` request should replace the entire resource and return a `200 OK` response with the updated values:
 
 **Request:**
 
 ```jsonc
-// PUT /user/bbb
+// PUT /users/bbb
 {
   "name": "Meg Lanning",
   "highScore": 100
@@ -275,14 +312,14 @@ A `PUT` request should replace the entire resource and return a `200 OK` respons
 
 #### Partially updating a resource
 
-`PATCH /{resource:singular}/{id}`
+`PATCH /{resource}/{id}`
 
 A `PATCH` request with a partial object of the resource should return a `200 OK` response with the updated values:
 
 **Request:**
 
 ```jsonc
-// PATCH /user/aaa
+// PATCH /users/aaa
 {
   "highScore": 400
 }
@@ -346,9 +383,23 @@ To partially update arrays and nested properties without having to replace the e
 
 ### Delete
 
-`DELETE /{resource:singular}/{id}`
+`DELETE /{resource}/{id}`
 
 A `DELETE` request should delete the resource and return a `204 No Content` response with an empty response body.
+
+<div align="right"><a href="#top">Back to top</a></div>
+
+### Upserting
+
+It's fairly common to have an APIs `PUT /{resource}/{id}` endpoint offer upserting capabilities. I **do not** like this as it:
+
+- Violates the single responsibility principle - you are creating a single endpoint that allows a consumer to both create **and** update a resource
+- Can _silently_ fail - if a user assumes a resource to exist and wants to update it, a `2xx` response would indicate the operation completed successfully, where in fact a new resource would have been created.
+
+I've observed too many real-world issues in production related to upserting. If an application wants to upsert, it can easily do so by sending a:
+
+1. `HEAD` request to `/{resource}/{id}` to check if the resource exists
+2. `POST` request to `/{resource}` if it does not, or a `PUT` request to `/{resource}/{id}` if it does
 
 <div align="right"><a href="#top">Back to top</a></div>
 
@@ -496,6 +547,14 @@ GET /users?sortBy=firstName.desc,lastName.asc
 
 The [HTTP Link](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Link) header should be used to return links to the paginated pages.
 
+### Cursor vs. offset pagination
+
+I want to limit myself from saying _"you should always use cursor based pagination over offset based pagination"_, as I don't want to wade too much into the implementation side of things and make assumptions about the type of API you're building. Typically, I would always default to implementing cursor-based pagination unless there was a strong case not to, and I would recommend you do as well. Amongst other things, it:
+
+- Eliminates the possibility of fetching the same items (or skipping items), which can occur when a collection is frequently being written to
+- Tends to scale better as your database grows in size
+- Provides a simpler interface both to querying over the API and to the end user navigating your data
+
 ### Cursor based pagination
 
 #### Request
@@ -539,7 +598,7 @@ link: <https://example.rest/users?page=3; rel="previous", <https://example.rest/
 It's fairly common for resources to have relationships between them. Often a response will contain an ID of a related resource. For example, a `transaction` may have an associated `user`. To prevent consumers from having to send multiple sequential HTTP requests to retrieve this information, you should allow them to expand those objects inline with the `expand` request parameter:
 
 ```
-GET /transaction/{id}?expand=user
+GET /transactions/{id}?expand=user
 ```
 
 Furthermore:
@@ -550,8 +609,8 @@ Furthermore:
 
 With the above in mind:
 
-- Good ✅: `/transaction/{id}?expand=user,user.profile`
-- Bad ❌: `/transaction/{id}?expand=user,user.profile,user.profile.address,,user.profile.address.country`
+- Good ✅: `/transactions/{id}?expand=user,user.profile`
+- Bad ❌: `/transactions/{id}?expand=user,user.profile,user.profile.address,,user.profile.address.country`
 
 ### Example
 
@@ -565,7 +624,7 @@ A request to `GET /transactions/<id>` might return:
 }
 ```
 
-Where `user` references the ID of the `user` who made the transaction. To automatically expand on the user details, you would request `GET /transaction/{id}?expand=user,user.profile`, which might return:
+Where `user` references the ID of the `user` who made the transaction. To automatically expand on the user details, you would request `GET /transactions/{id}?expand=user,user.profile`, which might return:
 
 ```json
 {
@@ -720,21 +779,21 @@ Versioning strategies are very situational, and I don't think there's any one ap
 
 For simplicity, default to versioning in the URL through a `v{number}` prefix. e.g. `/v1/*`, `/v2/*`. On an individual service, I generally prefer versioning before the resource at the service level:
 
-- `/v1/user/{id}`
+- `/v1/users/{id}`
 - `/v1/users`
 - `/v1/invoices`
 
 If your resources are fairly independent of each other you can choose to version at the resource level, however I tend to think this can sometimes increase the complexity of an API:
 
-- `/user/v3/{id}`
+- `/users/v3/{id}`
 - `/users/v3`
-- `/transaction/v2/{id}`
+- `/transactions/v2/{id}`
 
 When working in a service-oriented architecture, version at the service level:
 
 **User service:**
 
-- `GET /user/v1/{id}` -> routes to `v1` of the `user` service
+- `GET /users/v1/{id}` -> routes to `v1` of the `user` service
 - `GET /users/v2` -> routes to `v2` of the `user` service
 - `GET /users/v3/{id}/transactions` -> get `user` transactions from `v3` of the `user` service
 
